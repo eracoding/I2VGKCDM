@@ -1,3 +1,12 @@
+"""
+---------------------------------
+File: __init__.py
+Author: Ulugbek Shernazarov
+Email: u.shernaz4rov@gmail.com
+Copyright (c) 2025 Ulugbek Shernazarov. All rights reserved | GitHub: eracoding
+Description: Initialization module for image preprocessing using ControlNet auxiliary processors. Defines Processor and Preprocessor classes that handle various image conditioning methods like edge detection, pose estimation, depth mapping, and other transformations for controlled diffusion generation.
+---------------------------------
+"""
 import io
 import logging
 import os

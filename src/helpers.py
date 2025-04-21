@@ -1,5 +1,11 @@
 """
+---------------------------------
 File: helpers.py
+Author: Ulugbek Shernazarov
+Email: u.shernaz4rov@gmail.com
+Copyright (c) 2025 Ulugbek Shernazarov. All rights reserved | GitHub: eracoding
+Description: Utility functions for image processing, video handling, and animation support. Includes implementations for spatial transformations, color distribution matching, audio beat detection, interpolation methods, and media file operations.
+---------------------------------
 """
 import json
 import re

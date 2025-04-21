@@ -1,0 +1,71 @@
+{
+    "single_experiment": {
+        "experiment_name": "landscape_video",
+        "experiment_config": {
+            "mode": "standard",
+            "model_id": "CompVis/stable-diffusion-v1-4",
+            "prompt": "A beautiful landscape with mountains and lakes, trending on artstation",
+            "n_frames": 24,
+            "variation_strength": 0.2,
+            "guidance_scale": 7.5,
+            "seed": 42,
+            "height": 512,
+            "width": 512,
+            "fps": 12
+        }
+    },
+    
+    "transition_experiment": {
+        "experiment_name": "beach_to_mountain",
+        "experiment_config": {
+            "mode": "transition",
+            "model_id": "CompVis/stable-diffusion-v1-4",
+            "prompt1": "A sunny beach with palm trees",
+            "prompt2": "A snowy mountain landscape",
+            "n_frames": 24,
+            "guidance_scale": 7.5,
+            "seed": 42,
+            "height": 512,
+            "width": 512,
+            "fps": 12
+        }
+    },
+    
+    "multi_prompt_experiment": {
+        "experiment_name": "forest_day_cycle",
+        "experiment_config": {
+            "mode": "multi_prompt",
+            "model_id": "CompVis/stable-diffusion-v1-4",
+            "prompts": [
+                "A sunny day in a forest",
+                "A sunset over the forest",
+                "A forest at night with stars",
+                "A foggy forest at dawn"
+            ],
+            "frames_per_transition": 8,
+            "guidance_scale": 7.5,
+            "seed": 42,
+            "height": 512,
+            "width": 512,
+            "fps": 12
+        }
+    },
+    
+    "parameter_sweep": {
+        "base_config": {
+            "mode": "standard",
+            "model_id": "CompVis/stable-diffusion-v1-4",
+            "prompt": "A beautiful landscape with mountains and lakes, trending on artstation",
+            "n_frames": 16,
+            "variation_strength": 0.2,
+            "guidance_scale": 7.5,
+            "seed": 42,
+            "height": 512,
+            "width": 512,
+            "fps": 8
+        },
+        "sweep_parameter": "variation_strength",
+        "sweep_values": [0.05, 0.1, 0.2, 0.3, 0.4],
+        "experiment_prefix": "variation_sweep"
+    }
+}

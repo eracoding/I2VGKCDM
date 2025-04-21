@@ -1,3 +1,12 @@
+"""
+---------------------------------
+File: generate.py
+Author: Ulugbek Shernazarov
+Email: u.shernaz4rov@gmail.com
+Copyright (c) 2025 Ulugbek Shernazarov. All rights reserved | GitHub: eracoding
+Description: Core module for generating image sequences using diffusion models. Handles configuration of scheduler, pipeline initialization, and frame generation process with various parameters for animation effects, motion control, and temporal coherence.
+---------------------------------
+"""
 import json
 import logging
 import os

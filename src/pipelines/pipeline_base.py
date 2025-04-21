@@ -1,5 +1,11 @@
 """
-File: pipeline_foundation.py
+---------------------------------
+File: pipeline_base.py
+Author: Ulugbek Shernazarov
+Email: u.shernaz4rov@gmail.com
+Copyright (c) 2025 Ulugbek Shernazarov. All rights reserved | GitHub: eracoding
+Description: Foundation class for diffusion model pipelines that handles core operations such as text-to-conditioning conversions, latent encoding/decoding, classifier-free guidance implementation, and image processing utilities. Supports both standard and XL architecture models with appropriate conditioning processors and provides comprehensive tensor manipulation functions.
+---------------------------------
 """
 import inspect
 import torch

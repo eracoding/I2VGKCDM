@@ -1,5 +1,11 @@
 """
+---------------------------------
 File: custom_pipeline.py
+Author: Ulugbek Shernazarov
+Email: u.shernaz4rov@gmail.com
+Copyright (c) 2025 Ulugbek Shernazarov. All rights reserved | GitHub: eracoding
+Description: A customizable diffusion pipeline for image and video generation that supports various input sources (images, video, audio), interpolation methods, transformation effects, and stabilization techniques. The pipeline enables keyframe-based generation with smooth transitions between prompts, advanced audio-reactive capabilities, and spatial transformations.
+---------------------------------
 """
 import inspect
 import random

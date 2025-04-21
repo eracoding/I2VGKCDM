@@ -1,3 +1,12 @@
+"""
+---------------------------------
+File: session.py
+Author: Ulugbek Shernazarov
+Email: u.shernaz4rov@gmail.com
+Copyright (c) 2025 Ulugbek Shernazarov. All rights reserved | GitHub: eracoding
+Description: Session management module for saving and loading generation parameters. Provides functionality to store sessions in Hugging Face Hub repositories and retrieve them, enabling reproducibility of generation runs.
+---------------------------------
+"""
 import json
 
 import gradio as gr
