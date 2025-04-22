@@ -323,7 +323,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
                     negative_text = gr.Textbox(label="Negative Prompts", lines=2, value="blurry, low quality")
                     width = gr.Number(value=512, label="Width")
                     height = gr.Number(value=512, label="Height")
-                    steps = gr.Slider(10, 1000, value=50, step=10, label="Steps")
+                    steps = gr.Slider(10, 1000, value=20, step=10, label="Steps")
                     cfg_scale = gr.Slider(1, 20, value=7.5, step=0.5, label="CFG Scale")
                     seed = gr.Number(value=42, label="Seed")
                     batch_size = gr.Slider(1, 32, value=1, step=1, label="Batch Size")

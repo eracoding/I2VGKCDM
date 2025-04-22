@@ -103,39 +103,39 @@ class StabilizationCallback:
 
 class CustomPipeline(PipelineFoundation):
     def __init__(
-    self,
-    diffusion_pipeline,
-    text_conditioning,
-    compute_device,
-    guidance_scale=7.5,
-    inference_steps=50,
-    strength_curve="0:(0.5)",
-    image_height=512,
-    image_width=512,
-    use_consistent_latent=False,
-    use_text_embeddings=True,
-    latent_channel_count=4,
-    input_image=None,
-    audio_source=None,
-    audio_type="both",
-    audio_reduction_method="max",
-    video_source=None,
-    use_pil_video_format=False,
-    random_seed=42,
-    batch_size=1,
-    frames_per_second=10,
-    negative_conditioning="",
-    additional_pipeline_params={},
-    interpolation_mode="linear",
-    interpolation_settings="",
-    transform_settings=None,
-    boundary_handling="border",
-    stability_strength=350,
-    memory_persistence=1.0,
-    stability_iterations=1,
-    noise_curve="0:(0)",
-    enable_color_matching=False,
-    image_processors=[],
+        self,
+        diffusion_pipeline,
+        text_conditioning,
+        compute_device,
+        guidance_scale=7.5,
+        inference_steps=50,
+        strength_curve="0:(0.5)",
+        image_height=512,
+        image_width=512,
+        use_consistent_latent=False,
+        use_text_embeddings=True,
+        latent_channel_count=4,
+        input_image=None,
+        audio_source=None,
+        audio_type="both",
+        audio_reduction_method="max",
+        video_source=None,
+        use_pil_video_format=False,
+        random_seed=42,
+        batch_size=1,
+        frames_per_second=10,
+        negative_conditioning="",
+        additional_pipeline_params={},
+        interpolation_mode="linear",
+        interpolation_settings="",
+        transform_settings=None,
+        boundary_handling="border",
+        stability_strength=350,
+        memory_persistence=1.0,
+        stability_iterations=1,
+        noise_curve="0:(0)",
+        enable_color_matching=False,
+        image_processors=[],
     ):
         super().__init__(diffusion_pipeline, compute_device, batch_size)
         self.pipeline_parameters = set(inspect.signature(self.diffusion_pipeline).parameters.keys())
@@ -212,6 +212,7 @@ class CustomPipeline(PipelineFoundation):
 
         # Parse keyframes from text conditioning
         keyframes = extract_keyframes(text_conditioning)
+        print("Key Frames: ", keyframes)
         last_frame_idx, _ = max(keyframes, key=lambda x: x[0])
         self.total_frames = last_frame_idx + 1
 
@@ -235,6 +236,8 @@ class CustomPipeline(PipelineFoundation):
             self.embeddings = self._generate_text_embeddings(keyframes, interp_config)
         else:
             self.embeddings = self._extract_text_prompts(keyframes)
+
+        print("Self.embeddings: ", self.embeddings)
 
         # Set up transform callback if needed
         transform_settings = self._prepare_transform_settings(transform_settings)
@@ -524,8 +527,6 @@ class CustomPipeline(PipelineFoundation):
             # Get corresponding prompts/embeddings
             if self.use_text_embeddings:
                 prompt_batch = [self.embeddings[frame] for frame in batch_frames]
-                print("Prompt Batch: ", prompt_batch)
-                print(prompt_batch[0])
                 text_embeddings = [item["text_embeddings"] for item in prompt_batch]
                 text_embeddings = torch.cat(text_embeddings, dim=0)
 
@@ -535,6 +536,7 @@ class CustomPipeline(PipelineFoundation):
                     pooled_embeddings = torch.cat(pooled_embeddings, dim=0)
             else:
                 # Text prompts mode
+                print("Batch Frames: ", batch_frames)
                 text_embeddings = [self.embeddings[frame] for frame in batch_frames]
 
             # Get latents
@@ -559,6 +561,8 @@ class CustomPipeline(PipelineFoundation):
                 "frame_ids": batch_frames,
             }
             
+            print(batch_data)
+
             # Add pooled embeddings for XL models if needed
             if self.xl_architecture and self.use_text_embeddings:
                 batch_data.update({"pooled_prompts": pooled_embeddings})
@@ -679,10 +683,8 @@ class CustomPipeline(PipelineFoundation):
     def generate_frames(self, frame_indices=None):
         """Generate frames using the configured pipeline"""
         # Use all frames if none specified
-        print("Frame Indices: ", frame_indices)
         if frame_indices is None:
             frame_indices = list(range(self.total_frames))
-        print("Frame Indices: ", frame_indices)
 
         # Create batches of frames
         batch_generator = self._frame_batch_generator(frame_indices, self.batch_size)
