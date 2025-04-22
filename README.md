@@ -6,6 +6,10 @@ I2VGKCDM is a powerful and flexible toolkit for generating videos or animated GI
 
 ---
 
+## Open in Colab
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/eracoding/I2VGKCDM/blob/main/I2VGKCDM.ipynb)
+
 ## Features
 
 - Generate sequences of related images from text prompts
@@ -39,6 +43,11 @@ I2VGKCDM/
 ├── docker-compose.yaml          # Docker orchestration
 └── requirements.txt             # Dependencies
 ```
+
+---
+
+### Demo
+![](https://github.com/eracoding/I2VGKCDM/blob/main/media/demo.gif)
 
 ---
 
