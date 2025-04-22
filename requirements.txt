@@ -2,7 +2,7 @@ transformers
 diffusers
 accelerate
 typer
-av<10.0.0
+av=10.0.0
 ftfy
 gradio
 comet_ml
@@ -13,7 +13,7 @@ kornia
 triton
 torch
 torchvision
-# controlnet-aux @ git+https://github.com/patrickvonplaten/controlnet_aux.git@8958bb75bcd1dfab8880a7a9ccb105865c6e57df
+controlnet-aux @ git+https://github.com/patrickvonplaten/controlnet_aux.git@8958bb75bcd1dfab8880a7a9ccb105865c6e57df
 invisible-watermark>=0.2.0
 wonderwords
 compel
