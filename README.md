@@ -49,7 +49,7 @@ I2VGKCDM/
 ### Demo
 ![](https://github.com/eracoding/I2VGKCDM/blob/main/media/demo.gif)
 
-![Link to the youtube](https://youtu.be/3tId1HgSZHM)
+[Link to the youtube](https://youtu.be/3tId1HgSZHM)
 ---
 
 ## Getting Started
