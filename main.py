@@ -186,8 +186,7 @@ def store_session(org_id, repo_id, output_path, session_name):
 
 
 def render_video(frames, output_path, frame_rate, format_type):
-    print(frames)
-    frame_paths = [frame.image.path for frame in frames.root]
+    frame_paths = [frame[0] for frame in frames]
     output_file = f"{output_path}/output.mp4"
     create_video(
         image_files=frame_paths,
