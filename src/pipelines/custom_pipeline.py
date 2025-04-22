@@ -104,611 +104,528 @@ class StabilizationCallback:
 class CustomPipeline(PipelineFoundation):
     def __init__(
         self,
-        diffusion_pipeline,
-        text_conditioning,
-        compute_device,
+        pipe,
+        text_prompts,
+        device,
         guidance_scale=7.5,
-        inference_steps=50,
-        strength_curve="0:(0.5)",
-        image_height=512,
-        image_width=512,
-        use_consistent_latent=False,
-        use_text_embeddings=True,
-        latent_channel_count=4,
-        input_image=None,
-        audio_source=None,
-        audio_type="both",
-        audio_reduction_method="max",
-        video_source=None,
-        use_pil_video_format=False,
-        random_seed=42,
+        num_inference_steps=50,
+        strength="0:(0.5)",
+        height=512,
+        width=512,
+        use_fixed_latent=False,
+        use_prompt_embeds=True,
+        num_latent_channels=4,
+        image_input=None,
+        audio_input=None,
+        audio_component="both",
+        audio_mel_spectogram_reduce="max",
+        video_input=None,
+        video_use_pil_format=False,
+        seed=42,
         batch_size=1,
-        frames_per_second=10,
-        negative_conditioning="",
-        additional_pipeline_params={},
-        interpolation_mode="linear",
-        interpolation_settings="",
-        transform_settings=None,
-        boundary_handling="border",
-        stability_strength=350,
-        memory_persistence=1.0,
-        stability_iterations=1,
-        noise_curve="0:(0)",
-        enable_color_matching=False,
-        image_processors=[],
+        fps=10,
+        negative_prompts="",
+        additional_pipeline_arguments={},
+        interpolation_type="linear",
+        interpolation_args="",
+        motion_args=None,
+        padding_mode="border",
+        coherence_scale=350,
+        coherence_alpha=1.0,
+        coherence_steps=1,
+        noise_schedule="0:(0)",
+        use_color_matching=False,
+        preprocess=[],
     ):
-        super().__init__(diffusion_pipeline, compute_device, batch_size)
-        self.pipeline_parameters = set(inspect.signature(self.diffusion_pipeline).parameters.keys())
+        super().__init__(pipe, device, batch_size)
+        self.pipe_signature = set(inspect.signature(self.diffusion_pipeline).parameters.keys())
 
-            # Store configuration parameters
-        self.text_conditioning = text_conditioning
-        self.negative_conditioning = negative_conditioning
-        self.xl_architecture = hasattr(self.diffusion_pipeline, "text_encoder_2")
+        self.text_prompts = text_prompts
+        self.negative_prompts = negative_prompts
+        self.is_sdxl = hasattr(self.diffusion_pipeline, "text_encoder_2")
 
-        # Generation parameters
-        self.use_consistent_latent = use_consistent_latent
-        self.use_text_embeddings = use_text_embeddings
-        self.latent_channel_count = latent_channel_count
-        self.vae_downscale = self.diffusion_pipeline.vae_scale_factor
-        self.additional_pipeline_params = additional_pipeline_params
+        self.use_fixed_latent = use_fixed_latent
+        self.use_prompt_embeds = use_prompt_embeds
+        self.num_latent_channels = num_latent_channels
+        self.vae_scale_factor = self.diffusion_pipeline.vae_scale_factor
+        self.additional_pipeline_arguments = additional_pipeline_arguments
 
-        # Diffusion control parameters
         self.guidance_scale = guidance_scale
-        self.inference_steps = inference_steps
-        self.strength_curve = curve_from_cn_string(strength_curve)
-        self.random_seed = random_seed
+        self.num_inference_steps = num_inference_steps
+        self.strength = curve_from_cn_string(strength)
+        self.seed = seed
 
-        # Environment setup
-        self.compute_device = compute_device
-        self.random_generator = torch.Generator(self.compute_device).manual_seed(self.random_seed)
+        self.device = device
+        self.generator = torch.Generator(self.device).manual_seed(self.seed)
 
-        # Video parameters
-        self.frames_per_second = frames_per_second
+        self.fps = fps
 
-        # Image processing setup
-        self.image_processors = image_processors
-        if len(self.image_processors) > 1 and self.batch_size > 1:
+        self.preprocess = preprocess
+        if len(self.preprocess) > 1 and self.batch_size > 1:
             raise ValueError(
-                f"Multiple image processors can only be used with batch_size=1, not {self.batch_size}"
+                f"In order to use MultiControlnet",
+                f"batch size must be set to 1 but found batch size {self.batch_size}",
             )
-        self.processor = Preprocessor(self.image_processors)
+        self.preprocessor = Preprocessor(self.preprocess)
 
-        # Validate and prepare input sources
-        self._validate_inputs(input_image, video_source)
+        self.check_inputs(image_input, video_input)
 
-        if input_image is not None:
-            resized_image = self._resize_input_image(input_image)
-            self.image_width, self.image_height = resized_image.size
+        if image_input is not None:
+            image_input = self.resize_image_input(image_input)
+            self.width, self.height = image_input.size
 
-            self.reference_image = resized_image.convert("RGB")
-            self.source_image = self.processor(resized_image)
+            self.reference_image = image_input.convert("RGB")
+            self.image_input = self.preprocessor(image_input)
+
         else:
-            self.reference_image = self.source_image = None
-            self.image_height, self.image_width = image_height, image_width
+            self.reference_image = self.image_input = None
+            self.height, self.width = height, width
 
-        # Video setup
-        self.video_source = video_source
-        self.use_pil_video_format = use_pil_video_format
+        self.video_input = video_input
+        self.video_use_pil_format = video_use_pil_format
 
         self.video_frames = None
-        if self.video_source is not None:
-            self.video_frames, _, _ = read_media_file(self.video_source)
-            _, self.image_height, self.image_width = self.video_frames[0].size()
+        if self.video_input is not None:
+            self.video_frames, _, _ = read_media_file(self.video_input)
+            _, self.height, self.width = self.video_frames[0].size()
 
-        # Audio setup
-        if audio_source is not None:
-            self.audio_data, self.sample_rate = librosa.load(audio_source)
-            harmonic, percussive = librosa.effects.hpss(self.audio_data, margin=1.0)
+        if audio_input is not None:
+            self.audio_array, self.sr = librosa.load(audio_input)
+            harmonic, percussive = librosa.effects.hpss(self.audio_array, margin=1.0)
 
-            if audio_type == "percussive":
-                self.audio_data = percussive
+            if audio_component == "percussive":
+                self.audio_array = percussive
 
-            if audio_type == "harmonic":
-                self.audio_data = harmonic
+            if audio_component == "harmonic":
+                self.audio_array = harmonic
         else:
-            self.audio_data, self.sample_rate = (None, None)
+            self.audio_array, self.sr = (None, None)
 
-        self.audio_reducer = select_reduction_function(audio_reduction_method)
+        self.audio_mel_reduce_func = select_reduction_function(audio_mel_spectogram_reduce)
 
-        # Parse keyframes from text conditioning
-        keyframes = extract_keyframes(text_conditioning)
-        print("Key Frames: ", keyframes)
-        last_frame_idx, _ = max(keyframes, key=lambda x: x[0])
-        self.total_frames = last_frame_idx + 1
+        key_frames = extract_keyframes(text_prompts)
+        last_frame, _ = max(key_frames, key=lambda x: x[0])
+        self.max_frames = last_frame + 1
 
-        # Initialize random seeds for each frame
-        random.seed(self.random_seed)
-        self.frame_seeds = [
-            random.randint(0, 2**64 - 1) for _ in range(self.total_frames)
+        random.seed(self.seed)
+        self.seed_schedule = [
+            random.randint(0, 18446744073709551615) for i in range(self.max_frames)
         ]
 
-        # Prepare interpolation configuration
-        interp_config = {
-            "mode": interpolation_mode,
-            "settings": interpolation_settings,
+        interpolation_config = {
+            "interpolation_type": interpolation_type,
+            "interpolation_args": interpolation_args,
         }
-        
-        # Generate latents for each keyframe
-        self.frame_latents = self._generate_keyframe_latents(keyframes, interp_config)
-        
-        # Generate text embeddings if needed
-        if self.use_text_embeddings:
-            self.embeddings = self._generate_text_embeddings(keyframes, interp_config)
+        self.init_latents = self.get_init_latents(key_frames, interpolation_config)
+        if self.use_prompt_embeds:
+            self.prompts = self.get_prompt_embeddings(key_frames, interpolation_config)
         else:
-            self.embeddings = self._extract_text_prompts(keyframes)
+            self.prompts = self.get_prompts(key_frames)
 
-        print("Self.embeddings: ", self.embeddings)
-
-        # Set up transform callback if needed
-        transform_settings = self._prepare_transform_settings(transform_settings)
-        if transform_settings:
+        motion_args = self.prep_animation_args(motion_args)
+        if motion_args:
             if self.batch_size != 1:
                 raise ValueError(
-                    f"Transform settings can only be used with batch_size=1, not {self.batch_size}"
+                    f"In order to use Animation Arguments",
+                    f"batch size must be set to 1 but found batch size {self.batch_size}",
                 )
 
-            self.transform_callback = TransformCallback(
-                transform_settings, boundary_mode=boundary_handling
+            self.motion_callback = MotionCallback(
+                motion_args, padding_mode=padding_mode
             )
-            self.use_transforms = True
+            self.use_motion = True
         else:
-            self.use_transforms = False
+            self.use_motion = False
 
-        # Set up stabilization if needed
-        self.use_stabilization = stability_strength > 0.0 and self.batch_size == 1
-        if self.use_stabilization:
-            self.stabilization_callback = StabilizationCallback(
-                stability_factor=stability_strength,
-                memory_decay=memory_persistence,
-                iteration_count=stability_iterations,
+        self.use_coherence = coherence_scale > 0.0 and self.batch_size == 1
+        if self.use_coherence:
+            self.coherence_callback = CoherenceCallback(
+                coherence_scale=coherence_scale,
+                coherence_alpha=coherence_alpha,
+                steps=coherence_steps,
             )
         else:
-            self.stabilization_callback = None
+            self.coherence_callback = None
 
-        # Initialize noise schedule and color matching
-        self.noise_schedule = curve_from_cn_string(noise_curve)
-        self.enable_color_matching = enable_color_matching
-        self.color_match_only = self.enable_color_matching and not self.use_transforms
+        self.noise_schedule = curve_from_cn_string(noise_schedule)
+        self.use_color_matching = use_color_matching
+        self.use_color_matching_only = self.use_color_matching and not self.use_motion
 
-    def _validate_inputs(self, image_input, video_input):
-        """Validate that input sources don't conflict"""
+    def check_inputs(self, image_input, video_input):
         if image_input is not None and video_input is not None:
             raise ValueError(
-                "Cannot use both image_input and video_input simultaneously. Choose one input source."
+                f"Cannot forward both `image_input` and `video_input`. Please make sure to"
+                " only forward one of the two."
             )
 
-    def _resize_input_image(self, image_input):
-        """Resize input image to be divisible by 8"""
+    def resize_image_input(self, image_input):
+        # Resize so image size is divisible by 8
         height, width = image_input.size
         resized_height = height - (height % 8)
         resized_width = width - (width % 8)
 
-        return image_input.resize((resized_height, resized_width), Image.LANCZOS)
+        image_input = image_input.resize((resized_height, resized_width), Image.LANCZOS)
 
-    def _prepare_transform_settings(self, transform_settings):
-        """Process and validate transform settings"""
-        result = {}
-        if not transform_settings:
-            return result
-            
-        for key, value in transform_settings.items():
-            if len(value) == 0:
+        return image_input
+
+    def prep_animation_args(self, animation_args):
+        output = {}
+        for k, v in animation_args.items():
+            if len(v) == 0:
                 continue
-            result[key] = curve_from_cn_string(value)
+            output[k] = curve_from_cn_string(v)
 
-        return result
+        return output
 
-    def _generate_audio_interpolation_schedule(
-        self, start_frame, end_frame, frames_per_second, audio_data, sample_rate
+    def get_interpolation_schedule(
+        self,
+        start_frame,
+        end_frame,
+        fps,
+        interpolation_config,
+        audio_array=None,
+        sr=None,
     ):
-        """Generate frame interpolation schedule based on audio energy"""
-        frame_count = (end_frame - start_frame) + 1
-        frame_duration = sample_rate // frames_per_second
+        if audio_array is not None:
+            return self.get_interpolation_schedule_from_audio(
+                start_frame, end_frame, fps, audio_array, sr
+            )
 
-        start_sample = int((start_frame / frames_per_second) * sample_rate)
-        end_sample = int((end_frame / frames_per_second) * sample_rate)
-        audio_segment = audio_data[start_sample:end_sample]
+        if interpolation_config["interpolation_type"] == "sine":
+            interpolation_args = interpolation_config["interpolation_args"]
+            return self.get_sine_interpolation_schedule(
+                start_frame, end_frame, interpolation_args
+            )
 
-        # Generate mel spectrogram
-        spectrogram = librosa.feature.melspectrogram(
-            y=audio_segment, sr=sample_rate, hop_length=frame_duration
+        if interpolation_config["interpolation_type"] == "curve":
+            interpolation_args = interpolation_config["interpolation_args"]
+            return self.get_curve_interpolation_schedule(
+                start_frame, end_frame, interpolation_args
+            )
+
+        num_frames = (end_frame - start_frame) + 1
+
+        return np.linspace(0, 1, num_frames)
+
+    def get_sine_interpolation_schedule(
+        self, start_frame, end_frame, interpolation_args
+    ):
+        output = []
+        num_frames = (end_frame - start_frame) + 1
+        frames = np.arange(num_frames) / num_frames
+
+        interpolation_args = interpolation_args.split(",")
+        if len(interpolation_args) == 0:
+            interpolation_args = [1.0]
+        else:
+            interpolation_args = list(map(lambda x: float(x), interpolation_args))
+
+        for frequency in interpolation_args:
+            curve = np.sin(np.pi * frames * frequency) ** 2
+            output.append(curve)
+
+        schedule = sum(output)
+        schedule = (schedule - np.min(schedule)) / np.ptp(schedule)
+
+        return schedule
+
+    def get_interpolation_schedule_from_audio(
+        self, start_frame, end_frame, fps, audio_array, sr
+    ):
+        num_frames = (end_frame - start_frame) + 1
+        frame_duration = sr // fps
+
+        start_sample = int((start_frame / fps) * sr)
+        end_sample = int((end_frame / fps) * sr)
+        audio_slice = audio_array[start_sample:end_sample]
+
+        # from https://aiart.dev/posts/sd-music-videos/sd_music_videos.html
+        spec = librosa.feature.melspectrogram(
+            y=audio_slice, sr=sr, hop_length=frame_duration
         )
-        reduced_spec = self.audio_reducer(spectrogram, axis=0)
-        normalized_spec = librosa.util.normalize(reduced_spec)
+        spec = self.audio_mel_reduce_func(spec, axis=0)
+        spec_norm = librosa.util.normalize(spec)
 
-        # Create schedule
-        x_coords = np.linspace(0, len(normalized_spec), len(normalized_spec))
-        energy_curve = normalized_spec
-        cumulative_energy = np.cumsum(normalized_spec)
-        cumulative_energy /= cumulative_energy[-1]  # Normalize to 0-1 range
+        schedule_x = np.linspace(0, len(spec_norm), len(spec_norm))
+        schedule_y = spec_norm
+        schedule_y = np.cumsum(spec_norm)
+        schedule_y /= schedule_y[-1]
 
-        # Interpolate to match frame count
-        target_x = np.linspace(0, len(energy_curve), frame_count)
-        interpolated_schedule = np.interp(target_x, x_coords, cumulative_energy)
+        resized_schedule = np.linspace(0, len(schedule_y), num_frames)
+        interp_schedule = np.interp(resized_schedule, schedule_x, schedule_y)
 
-        return interpolated_schedule
+        return interp_schedule
 
-    def _generate_keyframe_latents(self, keyframes, interpolation_config):
-        """Generate latent representations for keyframes with interpolation between them"""
-        result = {}
-        
-        # Generate initial latent for first keyframe
-        initial_latent = torch.randn(
+    def get_curve_interpolation_schedule(
+        self, start_frame, end_frame, interpolation_args
+    ):
+        curve = curve_from_cn_string(interpolation_args)
+        curve_params = []
+        for frame in range(start_frame, end_frame + 1):
+            curve_params.append(curve[frame])
+
+        return np.array(curve_params)
+
+    @torch.no_grad()
+    def get_prompt_embeddings(self, key_frames, interpolation_config):
+        output = {}
+
+        for idx, (start_key_frame, end_key_frame) in enumerate(
+            zip(key_frames, key_frames[1:])
+        ):
+            start_frame, start_prompt = start_key_frame
+            end_frame, end_prompt = end_key_frame
+
+            start_prompt_embeds = self.prompt_to_embedding(start_prompt)
+            end_prompt_embeds = self.prompt_to_embedding(end_prompt)
+
+            interp_schedule = self.get_interpolation_schedule(
+                start_frame,
+                end_frame,
+                self.fps,
+                interpolation_config,
+                self.audio_array,
+                self.sr,
+            )
+
+            for i, t in enumerate(interp_schedule):
+                prompt_embed = spherical_interpolation(
+                    float(t),
+                    start_prompt_embeds["text_embeddings"],
+                    end_prompt_embeds["text_embeddings"],
+                )
+                output[i + start_frame] = {"text_embeddings": prompt_embed}
+                if "pooled_embeddings" in start_prompt_embeds:
+                    pooled_embed = spherical_interpolation(
+                        float(t),
+                        start_prompt_embeds["pooled_embeddings"],
+                        end_prompt_embeds["pooled_embeddings"],
+                    )
+                    output[i + start_frame].update({"pooled_embeddings": pooled_embed})
+
+        return output
+
+    def get_prompts(self, key_frames, integer=True, method="linear"):
+        output = {}
+        key_frame_series = pd.Series([np.nan for a in range(self.max_frames)])
+        for frame_idx, prompt in key_frames:
+            key_frame_series[frame_idx] = prompt
+
+        key_frame_series = key_frame_series.ffill()
+        for frame_idx, prompt in enumerate(key_frame_series):
+            output[frame_idx] = prompt
+
+        return output
+
+    @torch.no_grad()
+    def get_init_latents(self, key_frames, interpolation_config):
+        output = {}
+        start_latent = torch.randn(
             (
                 1,
-                self.latent_channel_count,
-                self.image_height // self.vae_downscale,
-                self.image_width // self.vae_downscale,
+                self.num_latent_channels,
+                self.height // self.vae_scale_factor,
+                self.width // self.vae_scale_factor,
             ),
             dtype=self.diffusion_pipeline.unet.dtype,
             device=self.diffusion_pipeline.device,
-            generator=self.random_generator,
+            generator=self.generator,
         )
 
-        # Process each pair of consecutive keyframes
-        for idx, (current_keyframe, next_keyframe) in enumerate(
-            zip(keyframes, keyframes[1:])
+        for idx, (start_key_frame, end_key_frame) in enumerate(
+            zip(key_frames, key_frames[1:])
         ):
-            current_frame_idx, _ = current_keyframe
-            next_frame_idx, _ = next_keyframe
+            start_frame, _ = start_key_frame
+            end_frame, _ = end_key_frame
 
-            # Generate next keyframe latent (or reuse if consistent latent enabled)
-            if self.use_consistent_latent:
-                next_latent = initial_latent
-            else:
-                next_latent = torch.randn(
+            end_latent = (
+                start_latent
+                if self.use_fixed_latent
+                else torch.randn(
                     (
                         1,
-                        self.latent_channel_count,
-                        self.image_height // self.vae_downscale,
-                        self.image_width // self.vae_downscale,
+                        self.num_latent_channels,
+                        self.height // self.vae_scale_factor,
+                        self.width // self.vae_scale_factor,
                     ),
                     dtype=self.diffusion_pipeline.unet.dtype,
                     device=self.diffusion_pipeline.device,
-                    generator=self.random_generator.manual_seed(self.frame_seeds[next_frame_idx]),
+                    generator=self.generator.manual_seed(self.seed_schedule[end_frame]),
                 )
+            )
 
-            # Determine interpolation schedule
-            interp_schedule = self._get_interpolation_schedule(
-                current_frame_idx,
-                next_frame_idx,
-                self.frames_per_second,
+            interp_schedule = self.get_interpolation_schedule(
+                start_frame,
+                end_frame,
+                self.fps,
                 interpolation_config,
-                self.audio_data,
-                self.sample_rate,
+                self.audio_array,
+                self.sr,
             )
 
-            # Generate interpolated latents for each frame between keyframes
             for i, t in enumerate(interp_schedule):
-                interpolated_latent = spherical_interpolation(float(t), initial_latent, next_latent)
-                result[i + current_frame_idx] = interpolated_latent
+                latents = spherical_interpolation(float(t), start_latent, end_latent)
+                output[i + start_frame] = latents
 
-            # Update initial latent for next pair
-            initial_latent = next_latent
+            start_latent = end_latent
 
-        return result
+        return output
 
-    def _generate_text_embeddings(self, keyframes, interpolation_config):
-        """Generate text embeddings for keyframes with interpolation between them"""
-        result = {}
-
-        # Process each pair of consecutive keyframes
-        for idx, (current_keyframe, next_keyframe) in enumerate(
-            zip(keyframes, keyframes[1:])
-        ):
-            current_frame_idx, current_prompt = current_keyframe
-            next_frame_idx, next_prompt = next_keyframe
-
-            # Generate embeddings for both keyframes
-            current_embedding = self.text_to_conditioning(current_prompt)
-            next_embedding = self.text_to_conditioning(next_prompt)
-
-            # Get interpolation schedule
-            interp_schedule = self._get_interpolation_schedule(
-                current_frame_idx,
-                next_frame_idx,
-                self.frames_per_second,
-                interpolation_config,
-                self.audio_data,
-                self.sample_rate,
-            )
-
-            # Generate interpolated embeddings for each frame
-            for i, t in enumerate(interp_schedule):
-                # Interpolate text embeddings
-                interpolated_embed = spherical_interpolation(
-                    float(t),
-                    current_embedding["text_embeddings"],
-                    next_embedding["text_embeddings"],
-                )
-                frame_result = {"text_embeddings": interpolated_embed}
-                
-                # Handle pooled embeddings for XL models
-                if "pooled_embeddings" in current_embedding:
-                    pooled_embed = spherical_interpolation(
-                        float(t),
-                        current_embedding["pooled_embeddings"],
-                        next_embedding["pooled_embeddings"],
-                    )
-                    frame_result.update({"pooled_embeddings": pooled_embed})
-                
-                result[i + current_frame_idx] = frame_result
-
-        return result
-
-    def _extract_text_prompts(self, keyframes, use_integers=True, method="linear"):
-        """Extract text prompts for each frame by interpolating between keyframes"""
-        result = {}
-        
-        # Create a Series with NaN values for all frames
-        frames_series = pd.Series([np.nan for _ in range(self.total_frames)])
-        
-        # Fill in keyframe values
-        for frame_idx, prompt in keyframes:
-            frames_series[frame_idx] = prompt
-
-        # Forward-fill to propagate values between keyframes
-        frames_series = frames_series.ffill()
-        
-        # Store result for each frame
-        for frame_idx, prompt in enumerate(frames_series):
-            result[frame_idx] = prompt
-
-        return result
-
-    def _get_interpolation_schedule(
-        self, start_frame, end_frame, fps, interpolation_config, audio_data=None, sample_rate=None
-    ):
-        """Generate appropriate interpolation schedule based on configuration"""
-        # Use audio-based interpolation if audio data is available
-        if audio_data is not None:
-            return self._generate_audio_interpolation_schedule(
-                start_frame, end_frame, fps, audio_data, sample_rate
-            )
-
-        # Handle sine-based interpolation
-        if interpolation_config["mode"] == "sine":
-            return self._generate_sine_schedule(
-                start_frame, end_frame, interpolation_config["settings"]
-            )
-
-        # Handle custom curve interpolation
-        if interpolation_config["mode"] == "curve":
-            return self._generate_custom_curve_schedule(
-                start_frame, end_frame, interpolation_config["settings"]
-            )
-
-        # Default to linear interpolation
-        frame_count = (end_frame - start_frame) + 1
-        return np.linspace(0, 1, frame_count)
-
-    def _generate_sine_schedule(self, start_frame, end_frame, settings):
-        """Generate sine-based interpolation schedule"""
-        result = []
-        frame_count = (end_frame - start_frame) + 1
-        normalized_frames = np.arange(frame_count) / frame_count
-
-        # Parse frequency parameters
-        frequencies = settings.split(",")
-        if len(frequencies) == 0:
-            frequencies = [1.0]
-        else:
-            frequencies = [float(freq) for freq in frequencies]
-
-        # Generate and sum sine curves with different frequencies
-        for frequency in frequencies:
-            curve = np.sin(np.pi * normalized_frames * frequency) ** 2
-            result.append(curve)
-
-        combined = sum(result)
-        normalized = (combined - np.min(combined)) / np.ptp(combined)
-
-        return normalized
-
-    def _generate_custom_curve_schedule(self, start_frame, end_frame, curve_spec):
-        """Generate interpolation schedule based on custom curve specification"""
-        curve_function = curve_from_cn_string(curve_spec)
-        values = []
-        
-        for frame in range(start_frame, end_frame + 1):
-            values.append(curve_function[frame])
-
-        return np.array(values)
-
-    def _frame_batch_generator(self, frames, batch_size):
-        """Generate batches of frames for processing"""
+    def batch_generator(self, frames, batch_size):
         for frame_idx in range(0, len(frames), batch_size):
-            start_idx = frame_idx
-            end_idx = min(frame_idx + batch_size, len(frames))
+            start = frame_idx
+            end = frame_idx + batch_size
 
-            # Get frame indices for this batch
-            batch_frames = frames[start_idx:end_idx]
-            
-            # Get corresponding prompts/embeddings
-            if self.use_text_embeddings:
-                prompt_batch = [self.embeddings[frame] for frame in batch_frames]
-                text_embeddings = [item["text_embeddings"] for item in prompt_batch]
-                text_embeddings = torch.cat(text_embeddings, dim=0)
+            frame_batch = frames[start:end]
+            prompts_batch = list(map(lambda x: self.prompts[x], frame_batch))
+            if self.use_prompt_embeds:
+                prompts = list(map(lambda x: x["text_embeddings"], prompts_batch))
+                prompts = torch.cat(prompts, dim=0)
 
-                # Handle pooled embeddings for XL models
-                if self.xl_architecture:
-                    pooled_embeddings = [item["pooled_embeddings"] for item in prompt_batch]
-                    pooled_embeddings = torch.cat(pooled_embeddings, dim=0)
+                if self.is_sdxl:
+                    pooled_prompts = list(
+                        map(lambda x: x["pooled_embeddings"], prompts_batch)
+                    )
+                    pooled_prompts = torch.cat(pooled_prompts, dim=0)
             else:
-                # Text prompts mode
-                print("Batch Frames: ", batch_frames)
-                text_embeddings = [self.embeddings[frame] for frame in batch_frames]
+                prompts = prompts_batch
 
-            # Get latents
-            latent_batch = [self.frame_latents[frame] for frame in batch_frames]
-            latent_batch = torch.cat(latent_batch, dim=0)
+            latents = list(map(lambda x: self.init_latents[x], frame_batch))
+            latents = torch.cat(latents, dim=0)
 
-            # Get video frames if using video input
             if self.video_frames is not None:
-                video_frame_batch = [self.video_frames[frame].unsqueeze(0) for frame in batch_frames]
-                if self.use_pil_video_format:
-                    video_frame_batch = [ToPILImage()(frame[0]) for frame in video_frame_batch]
+                images = list(
+                    map(lambda x: self.video_frames[x].unsqueeze(0), frame_batch)
+                )
+                if self.video_use_pil_format:
+                    images = list(map(lambda x: ToPILImage()(x[0]), images))
                 else:
-                    video_frame_batch = torch.cat(video_frame_batch, dim=0)
+                    images = torch.cat(images, dim=0)
+
             else:
-                video_frame_batch = []
+                images = []
 
-            # Assemble batch data
-            batch_data = {
-                "prompts": text_embeddings,
-                "init_latents": latent_batch,
-                "images": video_frame_batch,
-                "frame_ids": batch_frames,
+            outputs = {
+                "prompts": prompts,
+                "init_latents": latents,
+                "images": images,
+                "frame_ids": frame_batch,
             }
-            
-            print(batch_data)
+            if self.is_sdxl and self.use_prompt_embeds:
+                outputs.update({"pooled_prompts": pooled_prompts})
 
-            # Add pooled embeddings for XL models if needed
-            if self.xl_architecture and self.use_text_embeddings:
-                batch_data.update({"pooled_prompts": pooled_embeddings})
+            yield outputs
 
-            yield batch_data
+    def prepare_inputs(self, batch):
+        prompts = batch["prompts"]
+        latents = batch["init_latents"]
+        images = batch["images"]
+        frame_ids = batch["frame_ids"]
 
-    def _prepare_pipeline_inputs(self, batch_data):
-        """Prepare inputs for diffusion pipeline"""
-        prompts = batch_data["prompts"]
-        latents = batch_data["init_latents"]
-        images = batch_data["images"]
-        frame_ids = batch_data["frame_ids"]
+        pipe_kwargs = dict(
+            num_inference_steps=self.num_inference_steps,
+            guidance_scale=self.guidance_scale,
+        )
 
-        # Build pipeline keyword arguments
-        pipeline_kwargs = {
-            "num_inference_steps": self.inference_steps,
-            "guidance_scale": self.guidance_scale,
-        }
+        if "height" in self.pipe_signature:
+            pipe_kwargs.update({"height": self.height})
 
-        # Add height/width if supported
-        if "height" in self.pipeline_parameters:
-            pipeline_kwargs["height"] = self.image_height
+        if "width" in self.pipe_signature:
+            pipe_kwargs.update({"width": self.width})
 
-        if "width" in self.pipeline_parameters:
-            pipeline_kwargs["width"] = self.image_width
+        if "strength" in self.pipe_signature:
+            pipe_kwargs.update({"strength": self.strength[frame_ids[0]]})
 
-        # Add strength if supported
-        if "strength" in self.pipeline_parameters:
-            pipeline_kwargs["strength"] = self.strength_curve[frame_ids[0]]
+        if "latents" in self.pipe_signature:
+            pipe_kwargs.update({"latents": latents})
 
-        # Add latents if supported
-        if "latents" in self.pipeline_parameters:
-            pipeline_kwargs["latents"] = latents
+        if "prompt_embeds" in self.pipe_signature and self.use_prompt_embeds:
+            pipe_kwargs.update({"prompt_embeds": prompts})
+            if self.is_sdxl:
+                pipe_kwargs.update({"pooled_prompt_embeds": batch["pooled_prompts"]})
 
-        # Handle prompt embeddings or text prompts
-        if "prompt_embeds" in self.pipeline_parameters and self.use_text_embeddings:
-            pipeline_kwargs["prompt_embeds"] = prompts
-            if self.xl_architecture:
-                pipeline_kwargs["pooled_prompt_embeds"] = batch_data["pooled_prompts"]
-        elif "prompt" in self.pipeline_parameters and not self.use_text_embeddings:
-            pipeline_kwargs["prompt"] = prompts
+        elif "prompt" in self.pipe_signature and not self.use_prompt_embeds:
+            pipe_kwargs.update({"prompt": prompts})
 
-        # Add negative prompt if supported
-        if "negative_prompt" in self.pipeline_parameters:
-            pipeline_kwargs["negative_prompt"] = [self.negative_conditioning] * len(prompts)
+        if "negative_prompt" in self.pipe_signature:
+            pipe_kwargs.update(
+                {"negative_prompt": [self.negative_prompts] * len(prompts)}
+            )
 
-        # Add image input if supported
-        if "image" in self.pipeline_parameters:
-            if (self.video_source is not None) and (len(images) != 0):
-                # Use current video frame as input
-                processed_images = self.processor(images)
-                pipeline_kwargs["image"] = processed_images
-            elif self.source_image is not None:
-                # Use static image as input
-                pipeline_kwargs["image"] = self.source_image
+        if "image" in self.pipe_signature:
+            if (self.video_input is not None) and (len(images) != 0):
+                # preprocess the current batch of images
+                image_input = self.preprocessor(images)
+                pipe_kwargs.update({"image": image_input})
 
-        # Add generator if supported
-        if "generator" in self.pipeline_parameters:
-            pipeline_kwargs["generator"] = self.random_generator
+            elif self.image_input is not None:
+                pipe_kwargs.update({"image": self.image_input})
 
-        # Add any additional pipeline arguments
-        pipeline_kwargs.update(self.additional_pipeline_params)
+        if "generator" in self.pipe_signature:
+            pipe_kwargs.update({"generator": self.generator})
 
-        return pipeline_kwargs
+        pipe_kwargs.update(self.additional_pipeline_arguments)
 
-    def _get_reference_image(self, current_image):
-        """Get reference image for color matching"""
+        return pipe_kwargs
+
+    def get_reference_image(self, image_input):
         if self.reference_image is None:
-            self.reference_image = current_image
+            self.reference_image = image_input
 
         return self.reference_image
 
-    def _apply_color_matching(self, images):
-        """Apply color matching to ensure consistency"""
-        # Get reference image
-        reference = self._get_reference_image(images[0])
-        
-        # Match each image to reference
-        matched_images = [
-            match_color_distribution(image, reference) for image in images
+    def apply_color_matching(self, image_input):
+        # Color match the transformed image to the reference
+        reference_image = self.get_reference_image(image_input[0])
+        image_input = [
+            match_color_distribution(image, reference_image) for image in image_input
         ]
 
-        return matched_images
+        return image_input
 
-    def _apply_transforms(self, images, batch_data):
-        """Apply spatial transformations to images"""
-        image = images[0]
+    @torch.no_grad()
+    def apply_motion(self, image, idx):
+        image = image[0]
         image = image.convert("RGB")
-        transformed_images = self.transform_callback(image, batch_data)
+        image_input = self.motion_callback(image, idx)
 
-        return transformed_images
+        return image_input
 
-    def _execute_pipeline(self, batch_data):
-        """Run the diffusion pipeline with prepared inputs"""
-        pipeline_kwargs = self._prepare_pipeline_inputs(batch_data)
+    def run_inference(self, batch):
+        pipe_kwargs = self.prepare_inputs(batch)
 
-        frame_id = batch_data["frame_ids"][0]
+        frame_id = batch["frame_ids"][0]
 
-        # Set up stabilization if enabled
-        if self.use_stabilization:
+        if self.use_coherence:
             noise_level = self.noise_schedule[frame_id]
-            self.stabilization_callback.randomization = noise_level
-            callback_fn = self.stabilization_callback.apply
-            callback_steps = self.stabilization_callback.iteration_count
-        else:
-            callback_fn = None
-            callback_steps = 1
+            self.coherence_callback.noise_level = noise_level
 
-        # Run pipeline
         output = self.diffusion_pipeline(
-            **pipeline_kwargs,
-            callback=callback_fn,
-            callback_steps=callback_steps,
+            **pipe_kwargs,
+            callback=self.coherence_callback.apply if self.use_coherence else None,
+            callback_steps=self.coherence_callback.steps if self.use_coherence else 1,
         )
 
         return output
 
-    def generate_frames(self, frame_indices=None):
-        """Generate frames using the configured pipeline"""
-        # Use all frames if none specified
-        if frame_indices is None:
-            frame_indices = list(range(self.total_frames))
+    def create(self, frames=None):
+        batchgen = self.batch_generator(
+            frames if frames else [i for i in range(self.max_frames)], self.batch_size
+        )
 
-        # Create batches of frames
-        batch_generator = self._frame_batch_generator(frame_indices, self.batch_size)
+        for batch_idx, batch in enumerate(batchgen):
+            output = self.run_inference(batch)
+            images = output.images
 
-        # Process each batch
-        for batch_idx, batch in enumerate(batch_generator):
-            # Run diffusion pipeline
-            output = self._execute_pipeline(batch)
-            result_images = output.images
+            if self.use_color_matching_only:
+                images = self.apply_color_matching(images)
+                output.images = images
 
-            # Apply color matching if enabled (without transforms)
-            if self.color_match_only:
-                result_images = self._apply_color_matching(result_images)
-                output.images = result_images
-
-            # Return current batch result
             yield output, batch["frame_ids"]
 
-            # Apply transformations if enabled
-            if self.use_transforms:
-                result_images = self._apply_transforms(result_images, batch)
-                if self.enable_color_matching:
-                    result_images = self._apply_color_matching(result_images)
+            if self.use_motion:
+                images = self.apply_motion(images, batch)
+                if self.use_color_matching:
+                    images = self.apply_color_matching(images)
 
-                # Update source image for next iteration
-                self.source_image = self.processor(result_images)
-
+                self.image_input = self.preprocessor(images)

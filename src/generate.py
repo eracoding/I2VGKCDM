@@ -137,42 +137,42 @@ def generate_sequence(
 
     # Initialize the generation flow
     generation_flow = CustomPipeline(
-        diffusion_pipeline=pipeline,
-        text_conditioning=prompts,
-        negative_conditioning=negative_prompts,
+        pipe=pipeline,
+        text_prompts=prompts,
+        negative_prompts=negative_prompts,
         guidance_scale=cfg_scale,
-        strength_curve=img_strength,
-        inference_steps=inference_steps,
-        image_height=img_height,
-        image_width=img_width,
-        use_consistent_latent=static_latent,
-        use_text_embeddings=embed_prompts,
-        latent_channel_count=latent_channel_count,
-        compute_device=target_device,
-        input_image=init_image,
-        audio_source=audio_path,
-        audio_type=audio_mode,
-        audio_reduction_method=spectogram_reduction,
-        video_source=init_video,
-        use_pil_video_format=use_pil_video,
-        random_seed=random_seed,
+        strength=img_strength,
+        num_inference_steps=inference_steps,
+        height=img_height,
+        width=img_width,
+        use_fixed_latent=static_latent,
+        use_prompt_embeds=embed_prompts,
+        num_latent_channels=latent_channel_count,
+        device=target_device,
+        image_input=init_image,
+        audio_input=audio_path,
+        audio_component=audio_mode,
+        audio_mel_spectogram_reduce=spectogram_reduction,
+        video_input=init_video,
+        video_use_pil_format=use_pil_video,
+        seed=random_seed,
         batch_size=frames_per_batch,
-        frames_per_second=frame_rate,
-        additional_pipeline_params=extra_args,
-        interpolation_mode=interp_method,
-        interpolation_settings=interp_config,
-        transform_settings=motion_config,
-        boundary_handling=border_handling,
-        stability_strength=temp_coherence_scale,
-        memory_persistence=temp_coherence_factor,
-        stability_iterations=temp_coherence_iters,
-        noise_curve=noise_pattern,
-        enable_color_matching=enable_color_matching,
-        image_processors=preprocessing_method,
+        fps=frame_rate,
+        additional_pipeline_arguments=extra_args,
+        interpolation_type=interp_method,
+        interpolation_args=interp_config,
+        motion_args=motion_config,
+        padding_mode=border_handling,
+        coherence_scale=temp_coherence_scale,
+        coherence_alpha=temp_coherence_factor,
+        coherence_steps=temp_coherence_iters,
+        noise_schedule=noise_pattern,
+        use_color_matching=enable_color_matching,
+        preprocess=preprocessing_method,
     )
 
     # Get total frame count and prepare config for saving
-    total_frames = generation_flow.total_frames
+    total_frames = generation_flow.max_frames
     config_data = {
         "prompts": {
             "text_prompt_inputs": prompts,
@@ -247,7 +247,7 @@ def generate_sequence(
     os.makedirs(images_dir, exist_ok=True)
 
     # Generate and save images
-    frame_generator = generation_flow.generate_frames()
+    frame_generator = generation_flow.create()
     for output_batch, frame_indices in tqdm(frame_generator, total=total_frames // generation_flow.batch_size):
         rendered_images = output_batch.images
         for frame_img, frame_idx in zip(rendered_images, frame_indices):
