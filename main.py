@@ -20,9 +20,9 @@ from src.helpers import (
 )
 
 # Environment configuration
-AUTO_SAVE_ENABLED = os.getenv("GIFFUSION_AUTO_SAVE", True)
+AUTO_SAVE_ENABLED = os.getenv("MODEL_AUTO_SAVE", True)
 ORGANIZATION_ID = os.getenv("ORG_ID", None)
-REPOSITORY_ID = os.getenv("REPO_ID", "giffusion")
+REPOSITORY_ID = os.getenv("REPO_ID", "I2VGKCDM")
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 RESULTS_DIR = os.getenv("OUTPUT_BASE_PATH", "generated")
 MODEL_STORAGE = os.getenv("MODEL_PATH", "models")
@@ -174,6 +174,8 @@ def generate_output_directory():
     project_name = f"{word_generator.word(include_parts_of_speech=['adjectives'])}-{word_generator.word(include_parts_of_speech=['nouns'])}"
     output_path = os.path.join(RESULTS_DIR, project_name)
     os.makedirs(output_path, exist_ok=True)
+
+    print(f"[DEBUG] Generated output path: {output_path}")
     return output_path
 
 
@@ -184,6 +186,7 @@ def store_session(org_id, repo_id, output_path, session_name):
 
 
 def render_video(frames, output_path, frame_rate, format_type):
+    print(frames)
     frame_paths = [frame.image.path for frame in frames.root]
     output_file = f"{output_path}/output.mp4"
     create_video(
@@ -240,6 +243,7 @@ def execute_generation(
     preprocess_method,
 ):
     try:
+        print("Text Prompts: ", text_prompts)
         frame_generator = generate_sequence(
             output_directory=output_path,
             pipeline=pipeline,
@@ -295,537 +299,114 @@ def execute_generation(
         raise gr.Error(e)
 
 
-# UI Definition
-interface = gr.Blocks()
+with gr.Blocks(theme=gr.themes.Soft()) as demo:
+    gr.Markdown("""
+    # 🌀 Text-to-Video Animation Generator
+    Turn your ideas into stunning animations using Stable Diffusion and audio-visual control modules.
+    """)
 
-with interface:
-    gr.Markdown("# Animation Generation")
     with gr.Row():
-        with gr.Column(scale=1):
-            with gr.Accordion("Session Settings", open=False):
-                with gr.Tab("Save"):
-                    org_id_input = gr.Textbox(label="Org ID", value=ORGANIZATION_ID)
-                    repo_id_input = gr.Textbox(label="Repo ID", value=REPOSITORY_ID)
-                    session_name_input = gr.Textbox(label="Session Name")
-                    save_btn = gr.Button(value="Save Session")
-                    save_status = gr.Markdown()
+        with gr.Column(scale=2):
+            with gr.Tab("🛠️ Settings"):
+                with gr.Accordion("Pipeline Loader", open=False):
+                    model_path = gr.Textbox(label="Model Name", value="runwayml/stable-diffusion-v1-5")
+                    pipeline_type = gr.Textbox(label="Pipeline Type", value="DiffusionPipeline")
+                    controlnet_path = gr.Textbox(label="ControlNet Checkpoint", value="")
+                    adapter_path = gr.Textbox(label="T2I Adapter Checkpoint", value="")
+                    lora_path = gr.Textbox(label="LoRA Checkpoint", value="")
+                    custom_pipe_path = gr.Textbox(label="Custom Pipeline (Optional)", value="")
+                    load_model_btn = gr.Button("🚀 Load Pipeline")
+                    load_status = gr.Markdown()
 
-                with gr.Tab("Load"):
-                    load_org_input = gr.Textbox(label="Org ID", value=ORGANIZATION_ID)
-                    load_repo_input = gr.Textbox(label="Repo ID", value=REPOSITORY_ID)
-                    load_session_input = gr.Textbox(label="Session Name")
-                    settings_filter = gr.Dropdown(
-                        [
-                            "prompts",
-                            "diffusion_settings",
-                            "preprocessing_settings",
-                            "pipeline_settings",
-                            "animation_settings",
-                        ],
-                        label="Filter Settings",
-                        multiselect=True,
-                    )
-                    load_btn = gr.Button(value="Load Session Settings")
+                with gr.Accordion("Diffusion Settings", open=False):
+                    prompt_text = gr.Textbox(label="Text Prompts", lines=4, value="0: A cat sitting on a beach\n60: A cat flying in the sky")
+                    negative_text = gr.Textbox(label="Negative Prompts", lines=2, value="blurry, low quality")
+                    width = gr.Number(value=512, label="Width")
+                    height = gr.Number(value=512, label="Height")
+                    steps = gr.Slider(10, 1000, value=50, step=10, label="Steps")
+                    cfg_scale = gr.Slider(1, 20, value=7.5, step=0.5, label="CFG Scale")
+                    seed = gr.Number(value=42, label="Seed")
+                    batch_size = gr.Slider(1, 32, value=1, step=1, label="Batch Size")
+                    strength_param = gr.Textbox(value="0:(0.5)", label="Image Strength Schedule")
 
-            with gr.Accordion("Pipeline Settings: Load Models and Pipelines"):
-                with gr.Column():
-                    model_path = gr.Textbox(
-                        label="Model Name", value="runwayml/stable-diffusion-v1-5"
-                    )
-                    pipeline_type = gr.Textbox(
-                        label="Pipeline Name", value="DiffusionPipeline"
-                    )
-                    lora_path = gr.Textbox(label="LoRA Checkpoint")
+                with gr.Accordion("Animation Options", open=False):
+                    frame_rate = gr.Slider(10, 60, value=24, label="Frame Rate")
+                    output_format = gr.Dropdown(["mp4", "gif"], value="mp4", label="Output Format")
+                    interp_mode = gr.Dropdown(["linear", "sine", "curve"], value="linear", label="Interpolation")
+                    interp_params = gr.Textbox(value="", label="Interpolation Parameters")
+                    zoom_factor = gr.Textbox(value="", label="Zoom Factor")
+                    x_translation = gr.Textbox(value="", label="X Translation")
+                    y_translation = gr.Textbox(value="", label="Y Translation")
+                    rotation_angle = gr.Textbox(value="", label="Rotation Angle")
+                    pad_mode = gr.Dropdown(["zero", "border", "reflection"], value="border", label="Padding Mode")
+                    coherence_weight = gr.Slider(0, 100000, value=0, step=50, label="Coherence Weight")
+                    coherence_blend = gr.Slider(0, 1.0, value=1.0, step=0.1, label="Coherence Blend")
+                    coherence_iters = gr.Slider(0, 100, value=1, step=1, label="Coherence Iterations")
+                    noise_pattern = gr.Textbox(value="0:(0.01)", label="Noise Pattern")
+                    match_colors = gr.Checkbox(value=False, label="Match Colors")
 
-                    with gr.Tab("ControlNet"):
-                        controlnet_path = gr.Textbox(label="ControlNet Checkpoint")
-                    with gr.Tab("T2I Adapters"):
-                        adapter_path = gr.Textbox(label="T2I Adapter Checkpoint")
-
-                    custom_pipe_path = gr.Textbox(label="Custom Pipeline")
-
-                with gr.Column():
-                    with gr.Row():
-                        load_model_btn = gr.Button(value="Load Pipeline")
-                    with gr.Row():
-                        load_status_msg = gr.Markdown()
-
-            with gr.Accordion(
-                "Output Settings: Set output file format and FPS", open=False
-            ):
-                with gr.Row():
-                    with gr.Column():
-                        with gr.Row():
-                            output_format_selector = gr.Dropdown(
-                                ["gif", "mp4"], value="mp4", label="Output Format"
-                            )
-                        with gr.Row():
-                            framerate_slider = gr.Slider(
-                                10, 60, step=1, value=10, label="Output Frame Rate"
-                            )
-                        with gr.Row():
-                            render_btn = gr.Button(value="Save Video")
-
-            with gr.Accordion("Diffusion Settings", open=False):
-                with gr.Tab("Diffusion"):
-                    fixed_latent_toggle = gr.Checkbox(
-                        label="Use Fixed Init Latent", elem_id="use_fixed_latent"
-                    )
-                    prompt_embed_toggle = gr.Checkbox(
-                        label="Use Prompt Embeds",
-                        value=False,
-                        interactive=True,
-                        elem_id="use_prompt_embed",
-                    )
-                    seed_number = gr.Number(value=42, label="Numerical Seed", elem_id="seed")
-                    batch_slider = gr.Slider(
-                        1, 64, step=1, value=1, label="Batch Size", elem_id="batch_size"
-                    )
-                    steps_slider = gr.Slider(
-                        10,
-                        1000,
-                        step=10,
-                        value=20,
-                        label="Number of Iteration Steps",
-                        elem_id="num_iteration_steps",
-                    )
-                    cfg_slider = gr.Slider(
-                        0.5,
-                        20,
-                        step=0.5,
-                        value=7.5,
-                        label="Classifier Free Guidance Scale",
-                        elem_id="guidance_scale",
-                    )
-                    strength_input = gr.Textbox(
-                        label="Image Strength Schedule",
-                        value="0:(0.5)",
-                        elem_id="strength",
-                    )
-                    latent_channel_count = gr.Number(
-                        value=4,
-                        label="Number of Latent Channels",
-                        elem_id="num_latent_channels",
-                    )
-                    height_input = gr.Number(
-                        value=512, label="Image Height", elem_id="image_height"
-                    )
-                    width_input = gr.Number(
-                        value=512, label="Image Width", elem_id="image_width"
-                    )
-
-                with gr.Tab("Scheduler"):
-                    default_sched_toggle = gr.Checkbox(
-                        label="Use Default Pipeline Scheduler",
-                        elem_id="use_default_scheduler",
-                    )
-                    scheduler_type = gr.Dropdown(
-                        [
-                            "klms",
-                            "ddim",
-                            "ddpm",
-                            "pndms",
-                            "dpm",
-                            "dpm_ads",
-                            "deis",
-                            "euler",
-                            "euler_ads",
-                            "unipc",
-                        ],
+                    default_scheduler = gr.Checkbox(value=False, label="Use Default Scheduler")
+                    sched_name = gr.Dropdown(
+                        ["klms", "ddim", "ddpm", "pndms", "dpm", "dpm_ads", "deis", "euler", "euler_ads", "unipc"],
                         value="deis",
-                        label="Scheduler",
-                        elem_id="scheduler",
+                        label="Scheduler"
                     )
-                    scheduler_params = gr.Textbox(
-                        label="Scheduler Arguments",
-                        value="{}",
-                        elem_id="scheduler_kwargs",
-                    )
+                    sched_options = gr.Textbox(value="{}", label="Scheduler Options")
+                    fixed_latent = gr.Checkbox(value=False, label="Fixed Latent")
+                    use_embeds = gr.Checkbox(value=False, label="Use Embeds")
+                    latent_channels = gr.Number(value=4, label="Latent Channels")
 
-                with gr.Tab("Pipeline"):
-                    extra_pipeline_args = gr.Textbox(
-                        label="Additional Pipeline Arguments",
-                        value="{}",
-                        interactive=True,
-                        lines=4,
-                        placeholder="A dictionary of key word arguments to pass to the pipeline",
-                        elem_id="additional_pipeline_arguments",
-                    )
+            with gr.Tab("🎨 Media Inputs"):
+                image_input = gr.Image(label="Image Input", type="pil")
+                video_input = gr.Video(label="Video Input")
+                audio_input = gr.Audio(label="Audio Input", type="filepath")
 
-            with gr.Accordion("Animation Settings", open=False):
-                with gr.Tab("Interpolation"):
-                    interp_selector = gr.Dropdown(
-                        ["linear", "sine", "curve"],
-                        value="linear",
-                        label="Interpolation Type",
-                        elem_id="interpolation_type",
-                    )
-                    interp_params_input = gr.Textbox(
-                        "",
-                        label="Interpolation Parameters",
-                        visible=True,
-                        elem_id="interpolation_args",
-                    )
-                with gr.Tab("Motion"):
-                    zoom_input = gr.Textbox("", label="Zoom", elem_id="zoom")
-                    translate_x_input = gr.Textbox(
-                        "", label="Translate_X", elem_id="translate_x"
-                    )
-                    translate_y_input = gr.Textbox(
-                        "", label="Translate_Y", elem_id="translate_y"
-                    )
-                    angle_input = gr.Textbox("", label="Angle", elem_id="angle")
-                    padding_selector = gr.Dropdown(
-                        ["zero", "border", "reflection"],
-                        label="Padding Mode",
-                        value="border",
-                        elem_id="padding_mode",
-                    )
+                audio_type = gr.Dropdown(["percussive", "harmonic", "both"], value="percussive", label="Audio Type")
+                mel_reduce = gr.Dropdown(["mean", "median", "max"], value="max", label="Mel Reduction")
+                preprocess = gr.Dropdown(["no-processing"], value=["no-processing"], label="Preprocessing", multiselect=True)
 
-                with gr.Tab("Coherence"):
-                    coherence_slider = gr.Slider(
-                        0,
-                        100000,
-                        step=50,
-                        value=0,
-                        label="Coherence Scale",
-                        elem_id="coherence",
-                    )
-                    coherence_alpha_slider = gr.Slider(
-                        0,
-                        1.0,
-                        step=0.1,
-                        value=1.0,
-                        label="Coherence Alpha",
-                        elem_id="coherence_alpha",
-                    )
-                    coherence_steps_slider = gr.Slider(
-                        0,
-                        100,
-                        step=1,
-                        value=1,
-                        label="Coherence Steps",
-                        elem_id="coherence_steps",
-                    )
-                    noise_sched_input = gr.Textbox(
-                        label="Noise Schedule",
-                        value="0:(0.01)",
-                        interactive=True,
-                        elem_id="noise_schedule",
-                    )
-                    color_match_toggle = gr.Checkbox(
-                        label="Apply Color Matching",
-                        value=False,
-                        interactive=True,
-                        elem_id="use_color_matching",
-                    )
-
-            with gr.Accordion("Inspiration Settings", open=False):
-                with gr.Row():
-                    topic_input = gr.Textbox(lines=1, value="", label="Inspiration Topics")
+        with gr.Column(scale=3):
+            with gr.Tab("🖼️ Outputs"):
+                gallery = gr.Gallery(label="Generated Frames", columns=4)
+                video_display = gr.Video(label="Rendered Video")
 
                 with gr.Row():
-                    inspire_btn = gr.Button(
-                        value="Give me some inspiration!",
-                        variant="secondary",
-                        elem_id="prompt-generator-btn",
-                    )
+                    create_btn = gr.Button("🎬 Generate Animation")
+                    stop_btn = gr.Button("🛑 Stop")
+                    render_btn = gr.Button("💾 Render to Video")
 
-        with gr.Column(elem_id="output", scale=2):
-            with gr.Row():
-                with gr.Tab("Output"):
-                    gallery = gr.Gallery(
-                        label="Current Generation",
-                        preview=True,
-                        elem_id="preview",
-                        show_label=True,
-                    )
-                    send_to_img_btn = gr.Button(value="Send to Image Input")
+    # State and Callbacks
+    model_state = gr.State()
+    output_state = gr.State()
 
-                with gr.Tab("Video Output"):
-                    video_output = gr.Video(label="Model Output", elem_id="output")
-                    send_to_vid_btn = gr.Button(value="Send to Video Input")
-
-            with gr.Row():
-                create_btn = gr.Button(
-                    value="Create",
-                    variant="primary",
-                    elem_id="submit-btn",
-                )
-                cancel_btn = gr.Button(
-                    value="Stop",
-                    elem_id="stop-btn",
-                )
-            with gr.Row():
-                prompt_text = gr.Textbox(
-                    lines=10,
-                    value="""0: A corgi in the clouds\n60: A corgi in the ocean""",
-                    label="Text Prompts",
-                    interactive=True,
-                    elem_id="text_prompt_inputs",
-                )
-            with gr.Row():
-                negative_text = gr.Textbox(
-                    value="""low resolution, blurry, worst quality, jpeg artifacts""",
-                    label="Negative Prompts",
-                    interactive=True,
-                    elem_id="negative_prompt_inputs",
-                )
-
-        with gr.Column(scale=1):
-            with gr.Accordion("Image Input", open=False):
-                img_source_input = gr.Image(label="Initial Image", type="pil")
-
-            with gr.Accordion("Audio Input", open=False):
-                audio_source_input = gr.Audio(label="Audio Input", type="filepath")
-                audio_type_selector = gr.Dropdown(
-                    ["percussive", "harmonic", "both"],
-                    value="percussive",
-                    label="Audio Component",
-                    elem_id="audio_component",
-                )
-                audio_keyframe_btn = gr.Button(value="Get Key Frame Information")
-                mel_reduction_method = gr.Dropdown(
-                    ["mean", "median", "max"],
-                    label="Mel Spectrogram Reduction",
-                    value="max",
-                    elem_id="mel_spectrogram_reduce",
-                )
-
-            with gr.Accordion("Video Input", open=False):
-                video_source_input = gr.Video(label="Video Input")
-                video_keyframe_btn = gr.Button(value="Get Key Frame Infomation")
-                pil_format_toggle = gr.Checkbox(label="Use PIL Format", value=True)
-
-            with gr.Accordion("Controlnet Preprocessing Settings", open=False):
-                preprocess_selector = gr.Dropdown(
-                    PROCESSOR_OPTIONS,
-                    label="Preprocessing",
-                    multiselect=True,
-                    elem_id="preprocess",
-                )
-
-    # State variables
-    model_pipeline = gr.State()
-    output_dir = gr.State()
-    selected_frame = gr.State()
-
-    # Button handlers
     load_model_btn.click(
-        initialize_pipeline,
-        [model_path, pipeline_type, controlnet_path, adapter_path, lora_path, custom_pipe_path, model_pipeline],
-        [model_pipeline, load_status_msg],
+        fn=initialize_pipeline, 
+        inputs=[model_path, pipeline_type, controlnet_path, adapter_path, lora_path, custom_pipe_path, model_state],
+        outputs=[model_state, load_status]
     )
 
-    inspire_btn.click(
-        create_prompt_sequence,
-        inputs=[framerate_slider, topic_input],
-        outputs=prompt_text,
-    )
-    
-    audio_keyframe_btn.click(
-        format_audio_keyframes,
-        inputs=[audio_source_input, framerate_slider, audio_type_selector],
-        outputs=[prompt_text],
-    )
-    
-    video_keyframe_btn.click(
-        extract_video_metadata,
-        inputs=[video_source_input],
-        outputs=[prompt_text, framerate_slider],
-    )
+    generate_event = create_btn.click(fn=generate_output_directory, outputs=[output_state])
 
-    init_event = create_btn.click(generate_output_directory, outputs=[output_dir])
-    generation_event = init_event.success(
+    generate_event.then(
         fn=execute_generation,
         inputs=[
-            output_dir,
-            model_pipeline,
-            prompt_text,
-            negative_text,
-            width_input,
-            height_input,
-            steps_slider,
-            cfg_slider,
-            strength_input,
-            seed_number,
-            batch_slider,
-            framerate_slider,
-            default_sched_toggle,
-            scheduler_type,
-            scheduler_params,
-            fixed_latent_toggle,
-            prompt_embed_toggle,
-            latent_channel_count,
-            audio_source_input,
-            audio_type_selector,
-            mel_reduction_method,
-            img_source_input,
-            video_source_input,
-            pil_format_toggle,
-            output_format_selector,
-            model_path,
-            controlnet_path,
-            adapter_path,
-            lora_path,
-            extra_pipeline_args,
-            interp_selector,
-            interp_params_input,
-            zoom_input,
-            translate_x_input,
-            translate_y_input,
-            angle_input,
-            padding_selector,
-            coherence_slider,
-            coherence_alpha_slider,
-            coherence_steps_slider,
-            noise_sched_input,
-            color_match_toggle,
-            preprocess_selector,
+            output_state, model_state, prompt_text, negative_text, width, height, steps, cfg_scale,
+            strength_param, seed, batch_size, frame_rate, default_scheduler, sched_name, sched_options,
+            fixed_latent, use_embeds, latent_channels, audio_input, audio_type, mel_reduce, image_input,
+            video_input, gr.Checkbox(value=True, label="use_pil"), output_format, model_path, controlnet_path, adapter_path,
+            lora_path, gr.Textbox(value="{}", label="extra_args"), interp_mode, interp_params, zoom_factor, x_translation,
+            y_translation, rotation_angle, pad_mode, coherence_weight, coherence_blend, coherence_iters,
+            noise_pattern, match_colors, preprocess
         ],
-        outputs=[gallery],
+        outputs=[gallery]
     )
 
-    cancel_btn.click(fn=None, inputs=None, outputs=None, cancels=[generation_event])
-    save_btn.click(
-        store_session,
-        inputs=[org_id_input, repo_id_input, output_dir, session_name_input],
-        outputs=[save_status],
+    render_btn.click(
+        fn=render_video,
+        inputs=[gallery, output_state, frame_rate, output_format],
+        outputs=[video_display]
     )
 
-    def handle_select(evt: gr.SelectData):
-        item = evt.value
-        img_path = item["image"]["path"]
-        return img_path
-
-    gallery.select(handle_select, None, outputs=[selected_frame])
-
-    def pass_to_image_input(frame):
-        return frame
-
-    send_to_img_btn.click(pass_to_image_input, selected_frame, img_source_input)
-
-    def restore_session(org_id, repo_id, session_name, settings_filter):
-        config = load_session(org_id, repo_id, session_name)
-        if settings_filter:
-            filtered_config = {k: config[k] for k in settings_filter}
-            config = filtered_config
-
-        result = {}
-        for section, settings in config.items():
-            if section == "pipeline_settings":
-                result.update({
-                    model_path: config["pipeline_settings"]["model_name"],
-                    pipeline_type: config["pipeline_settings"]["pipeline_name"],
-                    lora_path: config["pipeline_settings"]["lora_name"],
-                    controlnet_path: config["pipeline_settings"]["controlnet_name"],
-                    adapter_path: config["pipeline_settings"]["adapter_name"],
-                })
-
-            if section == "prompts":
-                result.update({
-                    prompt_text: config["prompts"]["text_prompt_inputs"],
-                    negative_text: config["prompts"]["negative_prompt_inputs"],
-                })
-
-            if section == "diffusion_settings":
-                result.update({
-                    height_input: config["diffusion_settings"]["image_height"],
-                    width_input: config["diffusion_settings"]["image_width"],
-                    steps_slider: config["diffusion_settings"]["num_inference_steps"],
-                    cfg_slider: config["diffusion_settings"]["guidance_scale"],
-                    strength_input: config["diffusion_settings"]["strength"],
-                    seed_number: config["diffusion_settings"]["seed"],
-                    batch_slider: config["diffusion_settings"]["batch_size"],
-                    scheduler_type: config["diffusion_settings"]["scheduler"],
-                    default_sched_toggle: config["diffusion_settings"]["use_default_scheduler"],
-                    prompt_embed_toggle: config["diffusion_settings"]["use_prompt_embeds"],
-                    fixed_latent_toggle: config["diffusion_settings"]["use_fixed_latent"],
-                    extra_pipeline_args: config["diffusion_settings"]["additional_pipeline_arguments"],
-                })
-                
-            if section == "animation_settings":
-                result.update({
-                    interp_selector: config["animation_settings"]["interpolation_type"],
-                    interp_params_input: config["animation_settings"]["interpolation_args"],
-                    zoom_input: config["animation_settings"]["zoom"],
-                    translate_x_input: config["animation_settings"]["translate_x"],
-                    translate_y_input: config["animation_settings"]["translate_y"],
-                    angle_input: config["animation_settings"]["angle"],
-                    padding_selector: config["animation_settings"]["padding_mode"],
-                    coherence_slider: config["animation_settings"]["coherence_scale"],
-                    coherence_alpha_slider: config["animation_settings"]["coherence_alpha"],
-                    coherence_steps_slider: config["animation_settings"]["coherence_steps"],
-                    noise_sched_input: config["animation_settings"]["noise_schedule"],
-                    color_match_toggle: config["animation_settings"]["use_color_matching"],
-                })
-                
-            if section == "preprocessing_settings":
-                result.update({
-                    preprocess_selector: config["preprocessing_settings"]["preprocess"]
-                })
-
-        return result
-
-    load_btn.click(
-        restore_session,
-        [
-            load_org_input,
-            load_repo_input,
-            load_session_input,
-            settings_filter,
-        ],
-        outputs=[
-            pipeline_type,
-            model_path,
-            lora_path,
-            controlnet_path,
-            adapter_path,
-            custom_pipe_path,
-            prompt_text,
-            negative_text,
-            width_input,
-            height_input,
-            steps_slider,
-            cfg_slider,
-            strength_input,
-            seed_number,
-            batch_slider,
-            framerate_slider,
-            default_sched_toggle,
-            scheduler_type,
-            scheduler_params,
-            fixed_latent_toggle,
-            prompt_embed_toggle,
-            latent_channel_count,
-            audio_source_input,
-            audio_type_selector,
-            mel_reduction_method,
-            img_source_input,
-            video_source_input,
-            pil_format_toggle,
-            output_format_selector,
-            model_path,
-            controlnet_path,
-            extra_pipeline_args,
-            interp_selector,
-            interp_params_input,
-            zoom_input,
-            translate_x_input,
-            translate_y_input,
-            angle_input,
-            padding_selector,
-            coherence_slider,
-            coherence_alpha_slider,
-            coherence_steps_slider,
-            noise_sched_input,
-            color_match_toggle,
-            preprocess_selector,
-        ],
-    )
-    
-    render_btn.click(render_video, [gallery, output_dir, framerate_slider, output_format_selector], video_output)
-    send_to_vid_btn.click(pass_to_video_input, video_output, video_source_input)
 
 if __name__ == "__main__":
-    interface.launch(share=True, debug=DEBUG_MODE)
+    demo.launch(share=True, debug=DEBUG_MODE)
