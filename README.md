@@ -8,7 +8,7 @@ I2VGKCDM is a powerful and flexible toolkit for generating videos or animated GI
 
 ## Open in Colab
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/eracoding/I2VGKCDM/blob/main/I2VGKCDM.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/eracoding/I2VGKCDM/blob/main/I2VGKCDM.ipynb)
 
 ## Features
 
